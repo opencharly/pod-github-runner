@@ -311,4 +311,4 @@ github-runner-skill:
             - `/charly-image:layer` — candy authoring reference (tasks, vars, secret_accept, check block syntax)
             - `/charly-check:check` — declarative testing framework for the `check:` block + the `check-githubrunner-pod` bed
             - `/charly-build:secrets` — the credential store backing `RUNNER_TOKEN`
-// Phase-4 standalone-repo sweep: bare-name ref converted to @github
+# Phase-4 standalone-repo sweep: bare-name ref converted to @github
