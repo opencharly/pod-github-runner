@@ -1,7 +1,5 @@
-version: 2026.232.0520
 github-runner:
     candy:
-        version: 2026.243.0100
         description: |
             A GitHub Actions self-hosted runner that builds CI jobs rootless inside a disposable box.
             Installs the pinned actions/runner release under ${HOME}/actions-runner
