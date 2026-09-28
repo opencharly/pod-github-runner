@@ -1,5 +1,7 @@
+version: 2026.232.0520
 github-runner:
     candy:
+        version: 2026.243.0100
         description: |
             A GitHub Actions self-hosted runner that builds CI jobs rootless inside a disposable box.
             Installs the pinned actions/runner release under ${HOME}/actions-runner
@@ -14,7 +16,7 @@ github-runner:
             # newuidmap/newgidmap file-caps + containers/storage/policy configs all
             # come from container-nesting. This layer carries only the
             # runner-specific pieces (R3 — no duplication).
-            - '@github.com/opencharly/layer-container-nesting:v2026.267.1829'
+            - '@github.com/opencharly/layer-container-nesting:v2026.239.1647'
         distro:
             arch:
                 package:
@@ -207,6 +209,7 @@ github-runner:
               context:
                 - runtime
               command: getcap /usr/bin/newuidmap
+
 github-runner-skill:
     skill:
         name: github-runner
@@ -218,9 +221,9 @@ github-runner-skill:
             Use when working with GitHub Actions runners, CI/CD infrastructure, or runner registration.
         content: |
             # github-runner -- GitHub Actions self-hosted runner
-
+            
             ## Candy Properties
-
+            
             | Property | Value |
             |----------|-------|
             | Dependencies | `supervisord`, `container-nesting` |
@@ -228,9 +231,9 @@ github-runner-skill:
             | Service | `github-runner` (supervisord; runs `run.sh` as uid 1000) |
             | Security | none of its own — rootless nested podman comes from `container-nesting` (no `privileged`) |
             | Install files | `task:` — declarative pinned `download:` of the runner tarball + `write:` of the ghcr mirror config; the runner tree is root-extracted (the shared download cache is root-owned) then `chown -R`ed to uid 1000 (the one ownership `cmd:`) |
-
+            
             ## Packages (`distro.arch`, all in the official core/extra repos)
-
+            
             - Toolchain: `jq`, `git`, `go`, `cloud-guest-utils`, `cosign`
             - Cross-arch CI: `qemu-user-static`, `qemu-user-static-binfmt` (aarch64 binfmt)
             - .NET runtime deps for the runner binary (its `installdependencies.sh` has no
@@ -243,33 +246,33 @@ github-runner-skill:
               `charly box pkg` release-packages build that ran here is removed with the nFPM
               cutover — the `charly generate-packages` plugin + the per-distro repos build the
               packages now.)
-
+            
             `podman`/`buildah`/`skopeo`/`crun`/`fuse-overlayfs` are provided by the
             `container-nesting` dependency (not redeclared here — R3).
-
+            
             ## Environment / token contract
-
+            
             | Variable | Mechanism |
             |----------|-----------|
             | `RUNNER_ORG` | `env_accept` (plaintext identifier; supplied at deploy) |
             | `RUNNER_TOKEN` | `secret_accept` (credential-store-backed; never in charly.yml/quadlet) |
             | `RUNNER_WORK_DIR` | `${HOME}/actions-runner/_work` |
             | `RUNNER_GROUP` | `Default` |
-
+            
             The runner installs under `${HOME}/actions-runner` and runs as uid 1000. The
             ghcr.io pull-through mirror (`127.0.0.1:5000`) config is written to the user
             location `${HOME}/.config/containers/registries.conf.d/` (rootless podman).
-
+            
             ## Lifecycle Hooks (token-guarded)
-
+            
             - **post_enable** — registers the runner with `RUNNER_ORG` + `RUNNER_TOKEN`.
               Skips (no-op) when `RUNNER_TOKEN` is empty — so a token-less deploy (an check
               bed) brings the image up without registering.
             - **pre_remove** — deregisters; needs a **remove**-token (distinct from the
               registration token). Also skips when the token is empty.
-
+            
             ## Usage
-
+            
             ```yaml
             # charly.yml — rootless, CachyOS
             githubrunner:
@@ -278,42 +281,42 @@ github-runner-skill:
               candy: [agent-forwarding, github-runner, charly, dbus, container-nesting]
               network: host          # no uid/privileged override → rootless
             ```
-
+            
             ```bash
             TOKEN=$(gh api -X POST /orgs/myorg/actions/runners/registration-token --jq .token)
             charly config githubrunner -e RUNNER_ORG=myorg -e RUNNER_TOKEN="$TOKEN"
             charly remove githubrunner -e RUNNER_TOKEN=$(gh api -X POST /orgs/myorg/actions/runners/remove-token --jq .token)
             ```
-
+            
             ## Org-runner routing: a queued job is almost never an agent problem
-
+            
             A job that shows `labels: ["<your-label>"]`, `status: queued`, `runner_name: ""`
             while the runner reads `online` + `busy: false` is a ROUTING failure, not a
             runner failure — the runner has nothing to execute. Work the causes in order:
-
+            
             1. **The runner group does not allow public repos (the silent one).** An org
                runner in a group whose `allows_public_repositories` is `false` is INVISIBLE
                to every public repo in the org, so their jobs queue forever with no error
                anywhere. Check and fix with a REAL boolean (the `-f` flag sends the string
                `"true"`, which the API rejects as `"true" is not a boolean` — use `--input`):
-
+            
                ```bash
                gh api /orgs/<org>/actions/runner-groups --jq '.runner_groups[]|{id,name,allows_public_repositories,visibility}'
                echo '{"allows_public_repositories": true}' > rg.json
                gh api -X PATCH /orgs/<org>/actions/runner-groups/<id> --input rg.json
                ```
-
+            
             2. **`labels` mismatch.** The runner must carry every label `runs-on` names.
                Compare `gh api /orgs/<org>/actions/runners --jq '.runners[0].labels'` against
                the job's `labels` (a reusable workflow may resolve a `vars.` label you forgot
                to set, e.g. `vars.REVIEW_RUNNER_LABEL`).
-
+            
             3. **A stale broker session.** After a container restart the listener can log
                `A session for this runner already exists` / `TaskAgentSessionConflictException`
                and retry on a 30s loop without taking jobs, while still reporting `online`.
                A full clean cycle clears it — `charly remove` (deregisters) then
                `charly config` + `charly start` — not just a restart.
-
+            
             Confirm the fix by watching the job, not the runner: a picked-up job flips to
             `in_progress` with `runner_name` set, and the workflow's steps then appear.
 
@@ -323,27 +326,27 @@ github-runner-skill:
             runs `gh api` / `gh pr comment` / `gh pr merge`) needs the `gh` CLI in its
             image — compose `/charly-tools:gh` (it is not part of the base toolchain). A
             runner without it fails the workflow at its first `gh` call.
-
+            
             ## Used In Boxes
-
+            
             - `/charly-distros:githubrunner`
-
+            
             ## Related Candies
-
+            
             - `/charly-infrastructure:supervisord` — process manager dependency
             - `/charly-distros:container-nesting` — rootless nested podman/buildah/skopeo + subuid layout + caps
-
+            
             ## When to Use This Skill
-
+            
             Use when the user asks about:
-
+            
             - GitHub Actions self-hosted runners
             - Runner registration or deregistration
             - CI/CD container infrastructure
             - `RUNNER_TOKEN` or `RUNNER_ORG` configuration
-
+            
             ## Author + Test References
-
+            
             - `/charly-image:layer` — candy authoring reference (tasks, vars, secret_accept, check block syntax)
             - `/charly-check:check` — declarative testing framework for the `check:` block + the `check-githubrunner-pod` bed
             - `/charly-build:secrets` — the credential store backing `RUNNER_TOKEN`
