@@ -29,8 +29,8 @@ rebuilding does not change the runner version.
 | Service | `github-runner` (`~/actions-runner/run.sh`, `restart: always`, uid 1000) |
 | Requires | `layer-supervisord`, `layer-container-nesting` |
 | Volume | `state` at `~/actions-runner` |
-| Env | `RUNNER_WORK_DIR=~/actions-runner/_work`, `RUNNER_GROUP=Default`, `LANG=C.UTF-8`, `TZ=UTC` |
-| env_accept | `RUNNER_ORG` — the org/user to register with |
+| Env | `RUNNER_WORK_DIR=~/actions-runner/_work`, `LANG=C.UTF-8`, `TZ=UTC` |
+| env_accept | `RUNNER_ORG` — the org/user to register with; `RUNNER_LABELS` — the labels a job's `runs-on:` selects on (defaults to `opencharly`) |
 | secret_accept | `RUNNER_TOKEN` — the registration token (credential-store backed) |
 
 ## Registration

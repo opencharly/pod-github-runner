@@ -118,7 +118,6 @@ github-runner:
               path: ~/actions-runner
         env:
             RUNNER_WORK_DIR: "${HOME}/actions-runner/_work"
-            RUNNER_GROUP: "Default"
             # UTF-8, because this image ships NO generated locale: `locale` reports LANG
             # empty and `locale -a` lists only C, C.utf8 and POSIX. Under the POSIX locale
             # Python 3 and other runtimes fall back to ASCII for the filesystem encoding,
@@ -132,6 +131,8 @@ github-runner:
         env_accept:
             - name: RUNNER_ORG
               description: "GitHub org/user to register the runner with (e.g. opencharly). Pass via: charly config githubrunner -e RUNNER_ORG=<org>"
+            - name: RUNNER_LABELS
+              description: "Labels the runner registers under (`config.sh --labels`), i.e. what a job's `runs-on:` selects on. The post_enable hook falls back to `opencharly` when unset. Pass via: charly config githubrunner -e RUNNER_LABELS=<label>[,<label>]"
         secret_accept:
             - name: RUNNER_TOKEN
               description: "Short-lived GitHub Actions runner registration token (gh api -X POST /orgs/<org>/actions/runners/registration-token). Credential-store backed; never written to deploy.yml or the quadlet."
@@ -529,7 +530,7 @@ github-runner-skill:
             | `RUNNER_ORG` | `env_accept` (plaintext identifier; supplied at deploy) |
             | `RUNNER_TOKEN` | `secret_accept` (credential-store-backed; never in charly.yml/quadlet) |
             | `RUNNER_WORK_DIR` | `${HOME}/actions-runner/_work` |
-            | `RUNNER_GROUP` | `Default` |
+            | `RUNNER_LABELS` | `env_accept` — the labels a job's `runs-on:` selects on; the hook defaults to `opencharly` |
             | `LANG` | `C.UTF-8` (fixed) — see **Locale** below |
             | `TZ` | `UTC` (fixed) — deterministic log timestamps |
 
