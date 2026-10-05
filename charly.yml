@@ -119,11 +119,15 @@ github-runner:
         env:
             RUNNER_WORK_DIR: "${HOME}/actions-runner/_work"
             # UTF-8, because this image ships NO generated locale: `locale` reports LANG
-            # empty and `locale -a` lists only C, C.utf8 and POSIX. Under the POSIX locale
-            # Python 3 and other runtimes fall back to ASCII for the filesystem encoding,
-            # so a job that touches a non-ASCII path fails in a way that reads as a bug in
-            # the job rather than in the image. GitHub-hosted runners run UTF-8; this is
-            # that parity, and C.UTF-8 is built into glibc so nothing needs generating.
+            # empty and `locale -a` lists only C, C.utf8 and POSIX, so under the default
+            # POSIX locale a process's codeset is ASCII (`locale charmap` reports
+            # ANSI_X3.4-1968). GitHub-hosted runners run UTF-8; this is that parity, and
+            # C.UTF-8 is built into glibc so nothing needs generating. Measured caveats:
+            # /etc/locale.conf already carries LANG=C.UTF-8, but that only reaches
+            # login/PAM sessions — a charly `check` or a job process is neither, so the
+            # declaration here is what actually takes effect. CPython >= 3.7 coerces the
+            # C locale itself and reports utf-8 either way, so "Python breaks" is NOT the
+            # justification; the locale the tools see is.
             LANG: "C.UTF-8"
             # Deterministic timestamps in job logs, matching hosted runners. tzdata is in
             # the base image, so TZ=UTC resolves.
@@ -442,7 +446,7 @@ github-runner:
             # change the deployed container reported ANSI_X3.4-1968 (ASCII), and it reports
             # UTF-8 only once LANG is set — so this check proves the locale change rather
             # than restating a coincidence of the base image.
-            - check: the container runs with a UTF-8 locale, so jobs never fall back to ASCII filesystem encoding
+            - check: the container's job environment runs with a UTF-8 locale, not the base image's ASCII POSIX default
               id: gr-ci-utf8-locale
               stdout:
                 - contains: "UTF-8"
@@ -534,12 +538,16 @@ github-runner-skill:
             | `LANG` | `C.UTF-8` (fixed) — see **Locale** below |
             | `TZ` | `UTC` (fixed) — deterministic log timestamps |
 
-            **Locale.** The base image generates none: with `LANG` unset, `locale charmap`
-            reports `ANSI_X3.4-1968` (ASCII), so Python and other runtimes fall back to ASCII
-            for the filesystem encoding and a job that touches a non-ASCII path fails in a way
-            that reads as a bug in the job. `LANG=C.UTF-8` is set in the candy's `env:`; glibc
-            has `C.UTF-8` built in, so no locale needs generating. The `plan:` asserts it with
-            `locale charmap` — an assertion that genuinely fails without the change. Note that
+            **Locale.** The base image generates none: `locale -a` lists only `C`, `C.utf8`
+            and `POSIX`, and with `LANG` unset a non-login process is in the POSIX locale, so
+            `locale charmap` reports `ANSI_X3.4-1968` (ASCII). `LANG=C.UTF-8` is set in the
+            candy's `env:`; glibc has `C.UTF-8` built in, so no locale needs generating. The
+            base image's `/etc/locale.conf` also names `C.UTF-8`, but that reaches only
+            login/PAM sessions, and both a charly `check` and a job process are neither — the
+            `env:` declaration is the one that applies, which is why the `plan:` assertion
+            (`locale charmap` under `context: runtime`) genuinely fails without it. It is a
+            claim about the locale the tools see, not about Python: CPython >= 3.7 coerces the
+            C locale itself and reports `utf-8` either way. Note that
             the `TZ` check asserts the *variable* (`printenv TZ`), not `date +%Z`: the image's
             `/etc/localtime` is already UTC, so `date +%Z` would pass either way and prove
             nothing.
