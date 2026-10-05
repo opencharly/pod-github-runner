@@ -36,8 +36,10 @@ Canonical files:
 - The live R10 witness is a composing box's `check` bed; the candy's own `check:`
   steps assert `config.sh` + `run.sh` presence, `config.sh --version` (proving the
   `.NET` deps resolved), `skopeo`/`buildah`/`cosign`/`go` versions, the aarch64
-  qemu interpreter, rootless nested `podman`, the runner running as uid 1000, and
-  the `newuidmap` capability.
+  qemu interpreter, rootless nested `podman`, the runner running as uid 1000, the
+  `newuidmap` capability, one `package:` check per tool in the job tool surface,
+  and behavioural checks for `hostname` and the UTF-8 locale (a check that passes
+  either way proves nothing — assert what the change actually alters).
 - The merge gate is the **org-wide** `charly/pr-validator` (required check
   `validate / validate`, defined in `opencharly/.github`); this repo has **no**
   per-repo candy gate. Its only workflow file is
@@ -48,9 +50,18 @@ Canonical files:
 - Edit the `github-runner:` candy entity in `charly.yml`; the `skill:` entity in
   the same file is the owning skill's source — a candy change and its skill change
   land together.
-- The runner version pin is the `RUNNER_VERSION` var; the registration logic is
-  the token-guarded `post_enable` / `pre_remove` hooks. Keep them token-guarded —
-  an empty `RUNNER_TOKEN` must stay a clean no-op for token-less beds.
+- `RUNNER_VERSION` **seeds** the initial runner download; it does **not** pin the
+  version that runs. The runner self-updates, and the `state` volume carries that
+  update across image rebuilds — measured on the live fleet, `bin` symlinks to
+  `bin.2.337.0` under an image declaring `2.334.0`. Do not describe it as a pin,
+  and do not add `--disableupdate` without also deciding who owns the version
+  bumps that then become necessary.
+- The registration logic is the token-guarded `post_enable` / `pre_remove` hooks.
+  Keep them token-guarded — an empty `RUNNER_TOKEN` must stay a clean no-op for
+  token-less beds.
+- The job tool surface is load-bearing and org-wide, because the pool serves
+  every repo. Add a tool only with a matching `check:` in the `plan:` — a declared
+  package with no check is a claim, not a proof.
 - `podman`/`buildah`/`skopeo`/`crun`/`fuse-overlayfs` come from
   `layer-container-nesting`; do not redeclare them here (R3).
 - The `skill:` entity is the source for `/charly-distros:github-runner`; never

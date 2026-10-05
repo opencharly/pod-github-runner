@@ -6,20 +6,30 @@ CI jobs rootless inside a disposable box.
 
 ## What it provides
 
-Installs the pinned `actions/runner` release (default `2.334.0`) under
-`${HOME}/actions-runner` (`config.sh` + `run.sh`, run as uid 1000) plus the CI
-toolchain — `jq`/`git`/`go`/`cosign`, `qemu-user-static` for aarch64 binfmt
-cross-builds, and the rootless nested container stack (`podman`/`buildah`/`skopeo`
-via `container-nesting`). The `.NET` runtime deps (`icu`/`krb5`/`openssl`/
-`libunwind`/`lttng-ust`) are declared explicitly because the runner's
-`installdependencies.sh` has no Arch branch.
+Installs the `actions/runner` release seeded by `RUNNER_VERSION` (default
+`2.334.0`) under `${HOME}/actions-runner` (`config.sh` + `run.sh`, run as uid
+1000), plus the CI job tool surface the org's own workflows actually call:
+`jq`/`git`/`go`/`cosign`, `hostname` (from `inetutils`), `unzip`/`zip`/`7zip`/
+`wget`/`rsync`, `tree`, `shellcheck`/`shfmt`/`actionlint`/`golangci-lint`,
+`nodejs`/`npm`, `python-pip`/`uv`, `cmake`, `yq`/`ripgrep`/`moreutils`/`bc`/`less`,
+and the `lsof`/`strace`/`nc`/`dig` diagnostics — plus `qemu-user-static` for
+aarch64 binfmt cross-builds and the rootless nested container stack
+(`podman`/`buildah`/`skopeo` via `container-nesting`). The `.NET` runtime deps
+(`icu`/`krb5`/`openssl`/`libunwind`/`lttng-ust`) are declared explicitly because
+the runner's `installdependencies.sh` has no Arch branch. **Every** package
+carries its own `check:` in the candy's `plan:`, so a tool that is declared but
+not installed fails the image build rather than a job at 02:00.
+
+`RUNNER_VERSION` **seeds** that install — it is not a pin. The runner
+self-updates, and the `state` volume makes that update outlive the image, so
+rebuilding does not change the runner version.
 
 | Property | Value |
 |---|---|
 | Service | `github-runner` (`~/actions-runner/run.sh`, `restart: always`, uid 1000) |
 | Requires | `layer-supervisord`, `layer-container-nesting` |
 | Volume | `state` at `~/actions-runner` |
-| Env | `RUNNER_WORK_DIR=~/actions-runner/_work`, `RUNNER_GROUP=Default` |
+| Env | `RUNNER_WORK_DIR=~/actions-runner/_work`, `RUNNER_GROUP=Default`, `LANG=C.UTF-8`, `TZ=UTC` |
 | env_accept | `RUNNER_ORG` — the org/user to register with |
 | secret_accept | `RUNNER_TOKEN` — the registration token (credential-store backed) |
 
