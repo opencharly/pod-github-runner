@@ -27,6 +27,17 @@ github-runner:
                     - qemu-user-static # aarch64 cross-arch CI (binfmt)
                     - qemu-user-static-binfmt
                     - cosign # repo package (replaces binary download)
+                    # POSIX hostname(1) — the ONE utility charly's own test suite needs
+                    # from this image and that this image did not have. charly's
+                    # venue-materialization tests prove that a peer executed host-locally
+                    # by running `hostname` over the venue's shell and comparing it to
+                    # os.Hostname(); with no such binary that shell exits 127 and `ci`'s
+                    # `go` job fails on EVERY run, which is exactly what reds the gate for
+                    # any change at all (charly#806). inetutils is hostname's only Arch
+                    # provider — there is no standalone package — and it declares neither
+                    # Provides nor Conflicts, so it coexists with iputils' ping. It also
+                    # carries logger, tftp, telnet, ftp and rsh.
+                    - inetutils
                     # .NET runtime deps for the actions-runner binary — the runner's
                     # bundled installdependencies.sh has no Arch branch, so its native
                     # deps are declared explicitly here. (libz is NOT listed: CachyOS
@@ -45,12 +56,75 @@ github-runner:
                     - libisoburn # xorriso — VM NoCloud seed-ISO builder
                     - cdrtools # genisoimage/mkisofs seed-ISO fallback
                     - swtpm # software TPM 2.0 for VM guests
+                    # --- CI job tool surface ------------------------------------------
+                    # The pool serves the whole org, so a job must find the tools the org's
+                    # own workflows actually call. Where a count is given it is MEASURED,
+                    # not assumed:
+                    #   grep -rhoE '\b<tool>\b' <umbrella>/*/.github/workflows/ | sort | uniq -c
+                    # on 2026-10-05. The rest are GitHub-hosted-runner parity and
+                    # diagnostics, and are labelled as such rather than dressed up as
+                    # demand. What a job needs is a command that exists, so each of these
+                    # carries a check in the plan below — an image that merely claims a
+                    # tool surface is worth nothing.
+                    #
+                    # Deliberately NOT here, and not omissions but decisions:
+                    #   docker    — 16 refs exist, all `docker run --rm -v …` distro package
+                    #               builds in repos that run on hosted runners, plus one
+                    #               `uses: docker://`. A podman shim is NOT docker, and
+                    #               silently swapping one for the other in CI would trade a
+                    #               loud failure for a quiet wrong one (R4). Add real docker
+                    #               when a pool job needs it.
+                    #   rust/cargo— 6 refs, in two repos not on the pool; a toolchain is
+                    #               ~1 GiB. Add it with the repo that needs it.
+                    #   jdk, dotnet, gcloud/aws/az — zero refs anywhere in the org.
+                    #   passwordless sudo — 8 workflow files use sudo, all in the distro
+                    #               repos that build packages on hosted runners. Granting
+                    #               NOPASSWD root inside a LONG-LIVED container that runs
+                    #               org PRs would widen an escape path for a convenience
+                    #               nothing on the pool asks for today.
+                    - tree       # 15 refs (action-review, docs, marketplace)
+                    - shellcheck # 7 refs (charly-jetkvm, dotgithub)
+                    - shfmt      # pairs with shellcheck — the org lints and formats shell
+                    - actionlint # 2 refs (action-review); workflow-YAML lint
+                    - golangci-lint # 30 refs across 7 repos (charly, sdk, spec, plugin-*);
+                                    # the repo's build is v2.13.2 — byte-for-byte the
+                                    # version charly's ci `go install`s, so CI and this
+                                    # image cannot drift apart on the linter
+                    - nodejs     # 12 refs
+                    - npm        # 22 refs (docs, pi-asciinema); nodejs does NOT ship npm
+                    - python-pip # `pip`/`pip3` were absent although python3 is present
+                    - uv         # hosted parity — the current Python resolver/installer
+                    - cmake      # hosted parity; gcc/make/autotools are already installed
+                    - unzip      # archive handling: setup-* actions, SDK/binary downloads
+                    - zip        # ditto, for producing artefacts
+                    - 7zip       # .7z archives
+                    - wget       # legacy download scripts that never learned curl
+                    - rsync      # deploy/upload scripts
+                    - yq         # YAML manipulation in job scripts — jq's counterpart
+                    - ripgrep    # hosted parity: the search tool jobs and agents reach for
+                    - moreutils  # sponge/ts/vipe — pipeline ergonomics
+                    - bc         # arithmetic in shell job scripts
+                    - less       # pager; git falls back silently without it
+                    - lsof       # diagnostics: which process holds that port
+                    - strace     # diagnostics: syscall-level failure analysis
+                    - openbsd-netcat # nc — network diagnostics (no gnu-netcat present)
+                    - bind       # dig/nslookup/host — DNS diagnostics
         volume:
             - name: state
               path: ~/actions-runner
         env:
             RUNNER_WORK_DIR: "${HOME}/actions-runner/_work"
             RUNNER_GROUP: "Default"
+            # UTF-8, because this image ships NO generated locale: `locale` reports LANG
+            # empty and `locale -a` lists only C, C.utf8 and POSIX. Under the POSIX locale
+            # Python 3 and other runtimes fall back to ASCII for the filesystem encoding,
+            # so a job that touches a non-ASCII path fails in a way that reads as a bug in
+            # the job rather than in the image. GitHub-hosted runners run UTF-8; this is
+            # that parity, and C.UTF-8 is built into glibc so nothing needs generating.
+            LANG: "C.UTF-8"
+            # Deterministic timestamps in job logs, matching hosted runners. tzdata is in
+            # the base image, so TZ=UTC resolves.
+            TZ: "UTC"
         env_accept:
             - name: RUNNER_ORG
               description: "GitHub org/user to register the runner with (e.g. opencharly). Pass via: charly config githubrunner -e RUNNER_ORG=<org>"
@@ -207,6 +281,166 @@ github-runner:
               context:
                 - runtime
               command: getcap /usr/bin/newuidmap
+            # --- CI job tool surface ---------------------------------------------------
+            # Behavioural, not merely declared: `hostname` is the command charly's
+            # venue-materialization tests actually execute over a peer's shell, so this
+            # check fails on precisely the defect it was added to fix.
+            - check: hostname(1) resolves on PATH, so charly's venue tests can prove a peer ran host-locally
+              id: gr-hostname
+              exit_status: 0
+              command: hostname
+            - check: package=inetutils
+              id: gr-inetutils-pkg
+              package:
+                package: inetutils
+                installed: true
+            # One package check per tool, so a failure names the missing tool instead of a
+            # generic "the tool surface is broken". `package:` proves presence at build
+            # time; a tool that is declared but not installed fails the build here.
+            - check: package=tree
+              id: gr-ci-tree
+              package:
+                package: tree
+                installed: true
+            - check: package=shellcheck
+              id: gr-ci-shellcheck
+              package:
+                package: shellcheck
+                installed: true
+            - check: package=shfmt
+              id: gr-ci-shfmt
+              package:
+                package: shfmt
+                installed: true
+            - check: package=actionlint
+              id: gr-ci-actionlint
+              package:
+                package: actionlint
+                installed: true
+            - check: package=golangci-lint
+              id: gr-ci-golangci-lint
+              package:
+                package: golangci-lint
+                installed: true
+            - check: package=nodejs
+              id: gr-ci-nodejs
+              package:
+                package: nodejs
+                installed: true
+            - check: package=npm
+              id: gr-ci-npm
+              package:
+                package: npm
+                installed: true
+            - check: package=python-pip
+              id: gr-ci-python-pip
+              package:
+                package: python-pip
+                installed: true
+            - check: package=uv
+              id: gr-ci-uv
+              package:
+                package: uv
+                installed: true
+            - check: package=cmake
+              id: gr-ci-cmake
+              package:
+                package: cmake
+                installed: true
+            - check: package=unzip
+              id: gr-ci-unzip
+              package:
+                package: unzip
+                installed: true
+            - check: package=zip
+              id: gr-ci-zip
+              package:
+                package: zip
+                installed: true
+            - check: package=7zip
+              id: gr-ci-7zip
+              package:
+                package: 7zip
+                installed: true
+            - check: package=wget
+              id: gr-ci-wget
+              package:
+                package: wget
+                installed: true
+            - check: package=rsync
+              id: gr-ci-rsync
+              package:
+                package: rsync
+                installed: true
+            - check: package=yq
+              id: gr-ci-yq
+              package:
+                package: yq
+                installed: true
+            - check: package=ripgrep
+              id: gr-ci-ripgrep
+              package:
+                package: ripgrep
+                installed: true
+            - check: package=moreutils
+              id: gr-ci-moreutils
+              package:
+                package: moreutils
+                installed: true
+            - check: package=bc
+              id: gr-ci-bc
+              package:
+                package: bc
+                installed: true
+            - check: package=less
+              id: gr-ci-less
+              package:
+                package: less
+                installed: true
+            - check: package=lsof
+              id: gr-ci-lsof
+              package:
+                package: lsof
+                installed: true
+            - check: package=strace
+              id: gr-ci-strace
+              package:
+                package: strace
+                installed: true
+            - check: package=openbsd-netcat
+              id: gr-ci-openbsd-netcat
+              package:
+                package: openbsd-netcat
+                installed: true
+            - check: package=bind
+              id: gr-ci-bind
+              package:
+                package: bind
+                installed: true
+            # The locale is a runtime property of the deployed container, not a package, so
+            # it is asserted where it actually applies: the env the job inherits.
+            # `locale charmap` is the assertion that can actually fail: before this
+            # change the deployed container reported ANSI_X3.4-1968 (ASCII), and it reports
+            # UTF-8 only once LANG is set — so this check proves the locale change rather
+            # than restating a coincidence of the base image.
+            - check: the container runs with a UTF-8 locale, so jobs never fall back to ASCII filesystem encoding
+              id: gr-ci-utf8-locale
+              stdout:
+                - contains: "UTF-8"
+              context:
+                - runtime
+              command: locale charmap
+            # NOTE: `date +%Z` is deliberately NOT the assertion here. The container's
+            # /etc/localtime is already UTC, so `date +%Z` prints UTC with TZ unset and the
+            # check could never fail — a gate that cannot fail proves nothing. Asserting the
+            # variable itself does fail when the env entry is removed.
+            - check: TZ is set explicitly, so job-log timestamps do not depend on the base image's /etc/localtime
+              id: gr-ci-tz-utc
+              stdout:
+                - contains: "UTC"
+              context:
+                - runtime
+              command: printenv TZ
 
 github-runner-skill:
     skill:
@@ -232,7 +466,10 @@ github-runner-skill:
             
             ## Packages (`distro.arch`, all in the official core/extra repos)
             
-            - Toolchain: `jq`, `git`, `go`, `cloud-guest-utils`, `cosign`
+            - Toolchain: `jq`, `git`, `go`, `cloud-guest-utils`, `cosign`, `inetutils`
+              (`inetutils` is `hostname(1)`'s only Arch provider — charly's own venue tests
+              run `hostname` to prove a peer executed host-locally, and without the binary
+              they fail with exit 127; see **CI job tool surface** below)
             - Cross-arch CI: `qemu-user-static`, `qemu-user-static-binfmt` (aarch64 binfmt)
             - .NET runtime deps for the runner binary (its `installdependencies.sh` has no
               Arch branch): `icu`, `krb5`, `openssl`, `libunwind`, `lttng-ust` (NOT `zlib` —
@@ -245,6 +482,24 @@ github-runner-skill:
               cutover — the `charly generate-packages` plugin + the per-distro repos build the
               packages now.)
             
+            - **CI job tool surface** — the pool is org-wide, so a job must find whatever the
+              org's workflows actually call. Every entry below carries a `package:` check in
+              the candy's own `plan:`, so a tool that is declared but not installed fails the
+              image build rather than a job at 02:00: `tree`, `shellcheck`, `shfmt`,
+              `actionlint`, `golangci-lint` (the packaged `v2.13.2` is byte-for-byte the
+              version charly's own `ci` installs, so CI and the image cannot drift apart on
+              the linter), `nodejs`, `npm`, `python-pip`, `uv`, `cmake`, `unzip`, `zip`,
+              `7zip`, `wget`, `rsync`, `yq`, `ripgrep`, `moreutils`, `bc`, `less`, `lsof`,
+              `strace`, `openbsd-netcat`, `bind`.
+              Deliberately **absent**, as decisions rather than omissions: `docker` (16 refs
+              exist, all `docker run --rm -v …` distro package builds on hosted runners — a
+              podman shim is not docker, and quietly swapping the two in CI trades a loud
+              failure for a silent wrong one, R4); `rust`/`cargo` (6 refs, in repos not on the
+              pool); a JDK and the cloud CLIs (zero refs org-wide); and passwordless `sudo`
+              (8 workflow files use `sudo`, all in distro repos building packages on hosted
+              runners — NOPASSWD root inside a long-lived container that runs org PRs would
+              widen an escape path for a convenience nothing on the pool asks for).
+
             `podman`/`buildah`/`skopeo`/`crun`/`fuse-overlayfs` are provided by the
             `container-nesting` dependency (not redeclared here — R3).
             
@@ -256,7 +511,20 @@ github-runner-skill:
             | `RUNNER_TOKEN` | `secret_accept` (credential-store-backed; never in charly.yml/quadlet) |
             | `RUNNER_WORK_DIR` | `${HOME}/actions-runner/_work` |
             | `RUNNER_GROUP` | `Default` |
-            
+            | `LANG` | `C.UTF-8` (fixed) — see **Locale** below |
+            | `TZ` | `UTC` (fixed) — deterministic log timestamps |
+
+            **Locale.** The base image generates none: with `LANG` unset, `locale charmap`
+            reports `ANSI_X3.4-1968` (ASCII), so Python and other runtimes fall back to ASCII
+            for the filesystem encoding and a job that touches a non-ASCII path fails in a way
+            that reads as a bug in the job. `LANG=C.UTF-8` is set in the candy's `env:`; glibc
+            has `C.UTF-8` built in, so no locale needs generating. The `plan:` asserts it with
+            `locale charmap` — an assertion that genuinely fails without the change. Note that
+            the `TZ` check asserts the *variable* (`printenv TZ`), not `date +%Z`: the image's
+            `/etc/localtime` is already UTC, so `date +%Z` would pass either way and prove
+            nothing.
+
+
             The runner installs under `${HOME}/actions-runner` and runs as uid 1000. The
             ghcr.io pull-through mirror (`127.0.0.1:5000`) config is written to the user
             location `${HOME}/.config/containers/registries.conf.d/` (rootless podman).
