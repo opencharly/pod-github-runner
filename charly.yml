@@ -132,6 +132,20 @@ github-runner:
             - name: RUNNER_TOKEN
               description: "Short-lived GitHub Actions runner registration token (gh api -X POST /orgs/<org>/actions/runners/registration-token). Credential-store backed; never written to deploy.yml or the quadlet."
         var:
+            # NOTE: this SEEDS the initial `download:` below — it is NOT a pin, and the runner
+            # will not stay on it. The actions runner self-updates on its own schedule, and
+            # because `~/actions-runner` is a persistent volume (see `volume: state`) that
+            # update OUTLIVES the image: measured on the live fleet, both `bin.2.334.0` (what
+            # this var installed) and `bin.2.337.0` are present, with `bin` symlinked to
+            # 2.337.0 — under an image that declares 2.334.0 and was built 2026-10-02. So
+            # rebuilding the image alone does NOT change the runner version.
+            #
+            # That is deliberate, not an oversight: auto-update keeps the fleet inside
+            # GitHub's supported runner range without an operator having to bump this value,
+            # and a stale runner is a harder failure than an unannounced minor bump. Treat
+            # this var as "the version a FRESH volume starts from", never as the version that
+            # runs. `--disableupdate` in the registration hook is what would make it
+            # authoritative, and it is deliberately absent.
             RUNNER_VERSION: "2.334.0"
         hook:
             # Registration only runs when a token is supplied — so a disposable bed
@@ -524,6 +538,14 @@ github-runner-skill:
             `/etc/localtime` is already UTC, so `date +%Z` would pass either way and prove
             nothing.
 
+            **Runner version.** `RUNNER_VERSION` seeds the initial download — it is **not a
+            pin**. The actions runner self-updates on its own schedule, and because
+            `~/actions-runner` is a persistent volume that update survives an image rebuild:
+            measured on the live fleet, `bin` symlinks to `bin.2.337.0` while the deployed image
+            declares `2.334.0` (and `bin.2.334.0` is still on disk beside it). `--disableupdate`
+            is deliberately **not** set, so the fleet stays inside GitHub's supported runner
+            range without anyone bumping the value; the cost is that the declared number
+            describes a fresh volume, not a running one.
 
             The runner installs under `${HOME}/actions-runner` and runs as uid 1000. The
             ghcr.io pull-through mirror (`127.0.0.1:5000`) config is written to the user
