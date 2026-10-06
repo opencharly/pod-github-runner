@@ -90,10 +90,11 @@ github-runner:
                                     # so a job can lint without paying a `go install` of
                                     # its own. Measured in the built image: 2.14.0 (Arch's
                                     # current package). It is NOT the version CI's gate
-                                    # uses — charly's `ci` installs its own pinned
-                                    # `@v2.13.2` on every run (ci.yml:97), so the packaged
-                                    # copy never decides a CI lint result and cannot drift
-                                    # CI's verdict; it only spares jobs the install.
+                                    # uses — charly's `ci` `golangci-lint` step installs its
+                                    # own pinned `@v2.13.2` on every run (ci.yml:92), so the
+                                    # packaged copy never decides a CI lint result and
+                                    # cannot drift CI's verdict; it only spares jobs the
+                                    # install.
                     - nodejs     # 12 refs
                     - npm        # 22 refs (docs, pi-asciinema); nodejs does NOT ship npm
                     - python-pip # `pip`/`pip3` were absent although python3 is present
